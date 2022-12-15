@@ -1,0 +1,113 @@
+from phi.flow import *
+from phi.torch.flow import *
+import numpy as np
+
+sim_path = './content/14122022'
+
+num_points = 32
+x_min = 0
+x_max = 200
+num_frames = 5
+
+num_train_steps = 20000
+
+diff_min = 0
+diff_max = 100
+
+
+
+dt = 1.5
+
+
+def burgers_step(state, diff, dt=1.5):
+    state = diffuse.explicit(state, diff, dt=dt, substeps=10)
+    state = advect.semi_lagrangian(state, state, dt=dt)
+    return state, diff
+
+
+def training_loss(X):
+    predicted = math.native_call(net, X)
+    # physics_loss = math.l2_loss(trj_ref.values-trj_train.values)
+    # predicted_physics_loss = math.sum(predicted)
+    # return math.l2_loss(predicted_physics_loss - math.mean(math.l2_loss(trj_ref - trj_train))), X, predicted_physics_loss
+    # return math.l2_loss(predicted - physics_loss), X, predicted
+    return math.l2_loss(predicted - physics_loss), X, predicted
+
+
+# net = dense_net(num_points, 1, [256,256,256,256], activation='ReLU')
+net = conv_net(2, 1, [128,128,128], in_spatial=1 + 1, activation='ReLU')
+optimizer = adam(net)
+math.print(parameter_count(net))
+#
+training_loss_list = []
+BATCH = batch(b=8)
+for steps in range(num_train_steps):
+    velocity_ref = CenteredGrid(Noise(BATCH, scale=200, smoothness=0.4), extrapolation.PERIODIC, x=num_points, bounds=Box(x=(x_min, x_max))) * 2
+    # math.print(velocity_ref)
+    # diff_ref = math.expand(math.random_uniform(BATCH,low=diff_min, high=diff_max), spatial(velocity_ref))
+    # diff_train = math.expand(math.random_uniform(BATCH,low=diff_min, high=diff_max), spatial(velocity_ref))
+    diff_ref = math.random_uniform(BATCH, low=diff_min, high=diff_max)
+    diff_train = math.random_uniform(BATCH, low=diff_min, high=diff_max)
+    # math.print(diff_ref)
+    # math.print(diff_train)
+    trj_ref, _ = math.iterate(burgers_step, spatial(time=num_frames - 1), velocity_ref, diff_ref)
+    trj_train, _ = math.iterate(burgers_step, spatial(time=num_frames - 1), velocity_ref, diff_train)
+    # math.print(trj_ref)
+    # math.print(trj_train)
+    physics_loss = 0
+    physics_loss = math.l2_loss(trj_ref - trj_train)
+
+    diffusivity_train = math.expand(diff_train, spatial(trj_ref))
+    # math.print(diffusivity_train)
+
+    input_nn = stack([trj_ref.values, diffusivity_train], channel(features='state, diffusivity'))
+    # math.print(input_nn)
+
+    loss, _, _ = update_weights(net, optimizer, training_loss, input_nn)
+    training_loss_list.append(loss)
+
+    n1 = num_train_steps / 50
+    if steps % n1 == 0:
+        print(f"actual: {physics_loss}")
+        print(f"predicted: {math.mean(math.native_call(net, input_nn))}")
+        print(f"training_loss: {loss}")
+
+vis.show(CenteredGrid(math.stack(training_loss_list, spatial('steps'))))
+
+vis.show(CenteredGrid(math.mean(math.stack(training_loss_list, spatial('steps')), batch)))
+
+save_state(net, sim_path)
+
+load_state(net, sim_path)
+
+velocity_test = CenteredGrid(Noise(scale=200, smoothness=0.4), extrapolation.PERIODIC, x=num_points, bounds=Box(x=(x_min, x_max))) * 2
+
+diff_ref_test = math.random_uniform(low=diff_min, high=diff_max)
+# diff_ref_test = math.expand(math.random_uniform(low=diff_min, high=diff_max), spatial(velocity_test))
+trj_ref_test, _ = math.iterate(burgers_step, spatial(time=num_frames - 1), velocity_test, diff_ref_test)
+# math.print(velocity_test)
+math.print(math.mean(diff_ref_test))
+
+
+# math.print(trj_ref_test)
+
+def plot_fn_pred(x):
+    diff_x = math.expand(x, spatial(trj_ref_test))
+    X_test = math.stack([trj_ref_test.values, diff_x], channel(features='state, diffusivity'))
+    predicted_value = math.mean(math.native_call(net, X_test))
+    return predicted_value
+
+
+def plot_fn_act(x):
+    trj_test, _ = math.iterate(burgers_step, spatial(time=num_frames - 1), velocity_test, x)
+    return math.l2_loss(trj_ref_test - trj_test)
+
+
+vis.show(
+    CenteredGrid(lambda x1: math.stack({"Predicted": plot_fn_pred(x1), "actual": plot_fn_act(x1)}, channel('curves')),
+                 x1=100, bounds=Box(x1=(diff_min, diff_max))))
+
+vis.show(
+    {"predicted_physics_loss": CenteredGrid(lambda x1: plot_fn_pred(x1), x1=100, bounds=Box(x1=(diff_min, diff_max)))})
+
+vis.show({"actual_physics_loss": CenteredGrid(lambda x2: plot_fn_act(x2), x2=200, bounds=Box(x2=(diff_min, diff_max)))})
