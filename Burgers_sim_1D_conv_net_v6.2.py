@@ -10,8 +10,7 @@ xmin = 0
 xmax = 30
 num_frames = 11
 
-num_train_steps = 5000
-num_total_sims= 4096
+num_total_sims= 8091
 num_epochs= 16
 
 diff_min = 0
@@ -59,7 +58,7 @@ batch_size = 8
 BATCH = batch(b=8)
 training_loss_list = []
 
-num_indices = list(range(2*num_total_sims))
+num_indices = list(range(num_total_sims))
 math.print(num_indices)
 
 for epoch in range(num_epochs):
@@ -100,7 +99,7 @@ for epoch in range(num_epochs):
 
 vis.show(CenteredGrid(math.mean(math.stack(training_loss_list, spatial('steps')), batch)))
 
-sim_path_1='./content/19122022/19122022_03.pth'
+sim_path_1='./content/19122022/Burgers_1D_sim_nn_19122022_03.pth'
 
 save_state(net, sim_path_1)
 
