@@ -7,7 +7,7 @@ sim_path = './content/14122022'
 num_points = 32
 x_min = 0
 x_max = 200
-num_frames = 5
+num_frames = 50
 
 num_train_steps = 20000
 
